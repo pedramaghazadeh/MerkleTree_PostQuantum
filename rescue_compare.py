@@ -3,8 +3,9 @@ import numpy as np
 import cupy as cp
 import math
 import time
-print(cp.__version__)
-print(cp.cuda.runtime.getDeviceCount())
+
+print(f"cp.__version__: {cp.__version__}")
+print(f"Number of GPU devices: {cp.cuda.runtime.getDeviceCount()}")
 
 ### Initializations
 # prime for finite field (same as merkle tree) should be large, like 2**255 - 19
@@ -55,6 +56,8 @@ def mds_multiply_cpu(state):
 
 ### Rescue Hash Function
 def rescue_hash_cpu(inputs):
+    if type(inputs) is not list:
+        inputs = [inputs] # ensure inputs is a list
     # pad inputs -> add single 1, then 0s
     padded = inputs + [1] + [0] * (state_size - len(inputs) - 1)
     # update state
@@ -93,6 +96,8 @@ def mds_multiply_gpu(state):
 
 ### Rescue Hash Functions
 def rescue_hash_gpu(inputs):
+    if type(inputs) is not list:
+        inputs = [inputs] # ensure inputs is a list
     # pad inputs -> add single 1, then 0s
     padded = inputs + [1] + [0] * (state_size - len(inputs) - 1)
     # update state

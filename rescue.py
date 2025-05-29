@@ -41,6 +41,8 @@ def mds_multiply(state):
 
 ### Rescue Hash Function
 def rescue_hash(inputs):
+    if type(inputs) is not list:
+        inputs = [inputs] # ensure inputs is a list
     # pad inputs -> add single 1, then 0s
     padded = inputs + [1] + [0] * (state_size - len(inputs) - 1)
     # update state
