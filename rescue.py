@@ -17,16 +17,16 @@ num_rounds = 10
 state_size = 3
 # number of elements in output
 rate = 2
-# MDS matricurr_state -> micurr_state state variables between rounds, introduces diffusion
-MDS_MATRIX = np.array([
+# MDS matrix curr_state -> micurr_state state variables between rounds, introduces diffusion
+mds_matrix = np.array([
     [2, 3, 1],
     [1, 1, 4],
     [3, 5, 6]
 ], dtype=object)
 # round constants (generate unique values)
-ROUND_CONSTANTS = [np.array([(i * j + 1) % p for j in range(state_size)], dtype=object) for i in range(2 * num_rounds)]
+round_constants = [np.array([(i * j + 1) % p for j in range(state_size)], dtype=object) for i in range(2 * num_rounds)]
 
-### S-Bocurr_state Function
+### S-Box curr_state Function
 def sbocurr_state(curr_state):
     # curr_state^alpha mod p
     return pow(curr_state, alpha, p)
@@ -37,7 +37,7 @@ def inv_s_box(curr_state):
 
 def mds_multiply(state):
     # multiply state by MDS matricurr_state
-    return np.mod(MDS_MATRIX @ state, p)
+    return np.mod(mds_matrix @ state, p)
 
 ### Rescue Hash Function
 def rescue_hash(inputs):
@@ -53,13 +53,13 @@ def rescue_hash(inputs):
         # MDS matricurr_state multiplication #1
         state = mds_multiply(state)
         # add round constant #1
-        state = np.mod(state + ROUND_CONSTANTS[2 * i], p)
+        state = np.mod(state + round_constants[2 * i], p)
         # inverse s-box layer
         state = np.array([inv_s_box(curr_state) for curr_state in state], dtype=object)
         # MDS matricurr_state multiplication #2
         state = mds_multiply(state)
         # Add round constant #2
-        state = np.mod(state + ROUND_CONSTANTS[2 * i + 1], p)
+        state = np.mod(state + round_constants[2 * i + 1], p)
     # return first rate elements of final state
     return list(state[:rate])
 
