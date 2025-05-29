@@ -5,6 +5,9 @@
 
 A CPU/GPU implemnetation of Merkle Tree with SHA-3 and Rescue hash functions (from scratch) with a verifier for the hashing process. Merkle Tree is popular in hashing distributed systems and/or databases.
 
+![Merkle Tree](https://en.wikipedia.org/wiki/File:Hash_Tree.svg "Merkle Tree")
+
+
 ### Requirements
 Necessary packages can be installed via
 ```
