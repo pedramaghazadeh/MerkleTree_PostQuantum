@@ -94,8 +94,6 @@ keccak_hash_gpu = mod.get_function("keccak256_hash")
 
 # --- GPU Wrapper ---
 def sha3_keccak_gpu(inputs):
-    if not isinstance(inputs, (list, np.ndarray)):
-        inputs = [inputs]
     inputs = np.asarray(inputs, dtype=np.uint64)
     output = np.zeros_like(inputs, dtype=np.uint64)
 
