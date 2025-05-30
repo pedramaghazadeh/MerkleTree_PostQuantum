@@ -25,7 +25,18 @@ class Node():
             # print(type(hashlib.sha256(val.encode('utf-8')).hexdigest()), hashlib.sha256(val.encode('utf-8')).hexdigest(), "SHA256 Hash")
             return hashlib.sha256(val.encode('utf-8')).hexdigest()
         if self.hash_func == "SHA3":
-            pass
+            if self.device == "cpu":
+                # Use CPU version of SHA3 hash
+                # print(val, "Value for SHA3 Hash CPU")
+                string_bytes = val.encode('utf-8')
+                int_val = int.from_bytes(string_bytes[:8], byteorder='big')
+                return hex(sha3_keccak_cpu(int_val))[2:]
+            else:
+                # Use GPU version of SHA3 hash
+                string_bytes = val.encode('utf-8')
+                int_val = int.from_bytes(string_bytes[:8], byteorder='big')
+                return hex(sha3_keccak_gpu(int_val)[0])[2:]
+
         if self.hash_func == "Rescue":
             if self.device == "cpu":
                 # Use CPU version of Rescue hash
