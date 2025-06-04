@@ -136,7 +136,7 @@ if __name__ == "__main__":
 
     # test input on larger scale
     # test_input = [16, 234]  # small test
-    test_input = np.arange(1000, dtype=np.int64)
+    test_input = np.random.randint(0, p, size=10000, dtype=np.int64)
     test_input_gpu = cp.array(test_input, dtype=cp.uint64)
 
     ### CPU test
@@ -194,3 +194,4 @@ if __name__ == "__main__":
     print(f"GPU Result: {gpu_result}")
     print(f"CPU Time: {cpu_time:.6f} seconds")
     print(f"GPU Time: {gpu_time:.6f} seconds")
+    print("test input size = ", len(test_input))
