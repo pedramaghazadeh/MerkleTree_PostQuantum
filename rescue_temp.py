@@ -3,6 +3,8 @@ import numpy as np
 import cupy as cp
 import math
 import time
+print(cp.__version__)
+print(cp.cuda.runtime.getDeviceCount())
 
 ### Initializations
 # prime for finite field (same as merkle tree) should be large, like 2**255 - 19
@@ -20,9 +22,8 @@ num_rounds = 10
 state_size = 3
 # number of elements in output
 rate = 2
-
 # MDS matrix curr_state -> micurr_state state variables between rounds, introduces diffusion
-# both CPU and GPU versions
+    # both CPU and GPU versions
 mds_matrix_cpu = np.array([
     [2, 3, 1],
     [1, 1, 4],
@@ -32,12 +33,11 @@ mds_matrix_gpu = cp.array([
     [2, 3, 1],
     [1, 1, 4],
     [3, 5, 6]
-], dtype=cp.uint64)
-
+], dtype=cp.int64)
 # round constants (generate unique values)
-# both CPU and GPU versions
+    # both CPU and GPU versions
 round_constants_cpu = [np.array([(i * j + 1) % p for j in range(state_size)], dtype=np.int64) for i in range(2 * num_rounds)]
-round_constants_gpu = [cp.array([(i * j + 1) % p for j in range(state_size)], dtype=cp.uint64) for i in range(2 * num_rounds)]
+round_constants_gpu = [cp.array([(i * j + 1) % p for j in range(state_size)], dtype=cp.int64) for i in range(2 * num_rounds)]
 
 ##### CPU Functions #####
 ### S-Box curr_state Function
@@ -55,8 +55,6 @@ def mds_multiply_cpu(state):
 
 ### Rescue Hash Function
 def rescue_hash_cpu(inputs):
-    if type(inputs) is not list:
-        inputs = [inputs] # ensure inputs is a list
     # pad inputs -> add single 1, then 0s
     padded = inputs + [1] + [0] * (state_size - len(inputs) - 1)
     # update state
@@ -94,42 +92,28 @@ def mds_multiply_gpu(state):
     return cp.mod(mds_matrix_gpu @ state, p)
 
 ### Rescue Hash Functions
-def rescue_hash_gpu(input_array: cp.ndarray) -> cp.ndarray:
-    """
-    Args:
-        input_array: CuPy 1D array of integers (each a scalar input)
+def rescue_hash_gpu(inputs):
+    # pad inputs -> add single 1, then 0s
+    padded = inputs + [1] + [0] * (state_size - len(inputs) - 1)
+    # update state
+    state = cp.array(padded, dtype=cp.int64)
 
-    Returns:
-        CuPy array of shape (len(input_array), rate)
-    """
-    batch_size = input_array.shape[0]
-
-    # === Pad to full state ===
-    ones = cp.ones((batch_size, 1), dtype=cp.uint64)
-    zeros = cp.zeros((batch_size, state_size - 2), dtype=cp.uint64)  # 1 input + 1 one + rest zeros
-    print("Input array", input_array)
-    state = cp.concatenate([input_array[:, None], ones, zeros], axis=1)
-
-    # === Main Rescue Rounds ===
+    # apply functions through rounds
     for i in range(num_rounds):
-        # S-box layer
-        state = cp.power(state, alpha, dtype=cp.uint64) % p
-        # MDS mix
-        state = cp.mod(state @ mds_matrix_gpu.T, p)
-        # Add round constant #1
-        rc1 = round_constants_gpu[2 * i][None, :]  # shape (1, state_size)
-        state = cp.mod(state + rc1, p)
-
-        # Inverse S-box
-        state = cp.power(state, inv_alpha, dtype=cp.uint64) % p
-        state = cp.mod(state @ mds_matrix_gpu.T, p)
-
+        # s-box layer
+        state = cp.array([s_box_gpu(curr_state) for curr_state in state], dtype=cp.int64)
+        # MDS matricurr_state multiplication #1
+        state = mds_multiply_gpu(state)
+        # add round constant #1
+        state = cp.mod(state + round_constants_gpu[2 * i], p)
+        # inverse s-box layer
+        state = cp.array([inv_s_box_gpu(curr_state) for curr_state in state], dtype=cp.int64)
+        # MDS matricurr_state multiplication #2
+        state = mds_multiply_gpu(state)
         # Add round constant #2
-        rc2 = round_constants_gpu[2 * i + 1][None, :]
-        state = cp.mod(state + rc2, p)
-    print(state)
-    # Return first `rate` values of each state
-    return state[:, :1].reshape(-1)
+        state = cp.mod(state + round_constants_gpu[2 * i + 1], p)
+    # return first rate elements of final state
+    return list(state[:rate])
 
 ### Test Cases
 if __name__ == "__main__":
