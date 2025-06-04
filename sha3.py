@@ -6,6 +6,8 @@ import pycuda.autoinit
 from pycuda.compiler import SourceModule
 
 import numpy as np
+import cupy as cp
+
 import time
 
 # --- CUDA Kernel for Keccak-f[1600] ---
@@ -113,12 +115,21 @@ def sha3_keccak_gpu(inputs):
     return output
 
 # --- CPU Hasher ---
-def sha3_keccak_cpu(x):
+def sha3_keccak_cpu(x: int) -> int:
+    # Force to 64-bit unsigned integer
+    # print(type(x))
+    x &= 0xFFFFFFFFFFFFFFFF
+    # Step 1: XOR with constant
     x ^= 0xA3A3A3A3A3A3A3A3
+    # Step 2: Left rotate by 1
     x = ((x << 1) | (x >> 63)) & 0xFFFFFFFFFFFFFFFF
+    # Step 3: XOR with x shifted left by 13
     x ^= (x << 13) & 0xFFFFFFFFFFFFFFFF
+    # Step 4: XOR with x shifted right by 7 (unsigned)
     x ^= (x >> 7)
+    # Step 5: XOR with x shifted left by 17
     x ^= (x << 17) & 0xFFFFFFFFFFFFFFFF
+    # Return final 64-bit value
     return x & 0xFFFFFFFFFFFFFFFF
 
 # --- Merkle Tree Construction ---
@@ -159,7 +170,7 @@ def verify_proof(leaf, proof, root, index, hash_func):
 
 # --- Benchmarking ---
 if __name__ == "__main__":
-    leaves = np.arange(1000000, dtype=np.uint64)
+    leaves = np.arange(10, dtype=np.uint64)
 
     # CPU Benchmark
     start = time.time()
@@ -187,3 +198,5 @@ if __name__ == "__main__":
     valid = verify_proof(leaf, proof, root, index, sha3_keccak_gpu)
     print(f"Merkle Proof valid (GPU): {valid}")
 
+    print(cpu_hashes)
+    print(gpu_hashes)

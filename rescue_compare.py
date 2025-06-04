@@ -107,7 +107,7 @@ def rescue_hash_gpu(input_array: cp.ndarray) -> cp.ndarray:
     # === Pad to full state ===
     ones = cp.ones((batch_size, 1), dtype=cp.uint64)
     zeros = cp.zeros((batch_size, state_size - 2), dtype=cp.uint64)  # 1 input + 1 one + rest zeros
-    print("Input array", input_array)
+    # print("Input array", input_array)
     state = cp.concatenate([input_array[:, None], ones, zeros], axis=1)
 
     # === Main Rescue Rounds ===
@@ -127,7 +127,7 @@ def rescue_hash_gpu(input_array: cp.ndarray) -> cp.ndarray:
         # Add round constant #2
         rc2 = round_constants_gpu[2 * i + 1][None, :]
         state = cp.mod(state + rc2, p)
-    print(state)
+    # print(state)
     # Return first `rate` values of each state
     return state[:, :1].reshape(-1)
 
@@ -136,7 +136,7 @@ if __name__ == "__main__":
 
     # test input on larger scale
     # test_input = [16, 234]  # small test
-    test_input = np.random.randint(0, p, size=10000, dtype=np.int64)
+    test_input = np.random.randint(0, p, size=10, dtype=np.int64)
     test_input_gpu = cp.array(test_input, dtype=cp.uint64)
 
     ### CPU test
@@ -157,11 +157,11 @@ if __name__ == "__main__":
     ### GPU test
     # empty input
     empty_test = rescue_hash_gpu(cp.array([0], dtype=cp.uint64))
-    print("Rescue hash of []:", empty_test)
+    # print("Rescue hash of []:", empty_test)
 
     # non-empty input
     non_empty_test = rescue_hash_gpu(cp.array([16, 234], dtype=cp.uint64))
-    print("Rescue hash of [16, 234]:", non_empty_test)
+    # print("Rescue hash of [16, 234]:", non_empty_test)
 
     # ensure hash function is deterministic
     if cp.all( rescue_hash_gpu(cp.array([45, 125], dtype=cp.uint64)) == rescue_hash_gpu(cp.array([45, 125], dtype=cp.uint64)) ):

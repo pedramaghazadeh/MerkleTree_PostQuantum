@@ -3,7 +3,7 @@ import hashlib
 import numpy as np
 import cupy as cp
 
-from rescue import *
+from rescue_compare import *
 from sha3 import *
 
 class Node():
@@ -21,22 +21,13 @@ class Node():
 
     def hash(self, val):
         if self.hash_func == "SHA256":
-            # print(type(hashlib.sha256(val.encode('utf-8')).hexdigest()), hashlib.sha256(val.encode('utf-8')).hexdigest(), "SHA256 Hash")
-            return hashlib.sha256(val.encode('utf-8')).hexdigest()
+            return hashlib.sha256(val).hexdigest()
         elif self.hash_func == "SHA3":
             # Use CPU version of SHA3 hash
-            # print(val, "Value for SHA3 Hash CPU")
-            string_bytes = val.encode('utf-8')
-            int_val = int.from_bytes(string_bytes[:8], byteorder='big')
-            return hex(sha3_keccak_cpu(int_val))[2:]
+            return sha3_keccak_cpu(val)
         elif self.hash_func == "Rescue":
             # Use CPU version of Rescue hash
-            string_bytes = val.encode('utf-8')
-            int_val = int.from_bytes(string_bytes[:8], byteorder='big')
-            # print(int_val, "Integer value for Rescue Hash CPU")
-            # Compute the Rescue hash using CPU
-            return hex(rescue_hash_cpu(int_val)[0])[2:]  # Convert to hex and remove '0x' prefix
-
+            return rescue_hash_cpu(val)[0]
     def __str__(self):
         return f"Node(value={self.value})"
 
@@ -76,7 +67,7 @@ class MerkleTree():
         mid = len(data) // 2
         left = self.recursive_build(data[:mid])
         right = self.recursive_build(data[mid:])
-        return Node(content=left.value + right.value, left=left, right=right, hash_function=self.hash_func)
+        return Node(content=((left.value << 32) ^ right.value), left=left, right=right, hash_function=self.hash_func)
 
     def print_tree(self):
         if self.root:
@@ -97,64 +88,88 @@ class MerkleTree():
         return self.root.value
 
 class GPUMerkleTree:
-    def __init__(self, data: list[str], hash_func="Rescue"):
+    def __init__(self, data, hash_func="Rescue"):
         self.hash_func = hash_func
         self.data = data
+        self.tree = []
+
         self.leaf_hashes = self._hash_leaves(data)
         self.root = self._build_tree_gpu(self.leaf_hashes)
+        
 
     def _hash_leaves(self, data):
-        # Convert strings to 64-bit ints
-        inputs = []
-        for d in data:
-            b = d.encode("utf-8")
-            val = int.from_bytes(b[:8], 'big')  # truncate to 64-bit
-            inputs.append(val)
-
         # GPU batch hash
         if self.hash_func == "Rescue":
-            arr = cp.array(inputs, dtype=cp.uint64)
-            return rescue_hash_gpu(arr)
+            return rescue_hash_gpu(self.data)
         elif self.hash_func == "SHA3":
-            arr = np.array(inputs, dtype=np.uint64)
-            return sha3_keccak_gpu(arr)
+            return sha3_keccak_gpu(np.array(self.data))
         else:
             raise ValueError("Unknown hash function")
 
     def _build_tree_gpu(self, hashes):
         current = hashes
         while current.shape[0] > 1:
-            print(f"Current level size: {current.shape[0]}")
+            # print(f"Current level size: {current.shape[0]}")
             if current.shape[0] % 2 == 1:
                 if self.hash_func == "Rescue":
                     current = cp.concatenate([current, current[-1:]])
                 elif self.hash_func == "SHA3":
                     current = np.concatenate([current, current[-1:]])
-
+            self.tree.append(current)
             left = current[::2]
             right = current[1::2]
 
-            combined = (left.astype(cp.uint64) << 32) ^ right.astype(cp.uint64)
-
             if self.hash_func == "Rescue":
-                arr = cp.array(combined, dtype=cp.uint64)
-                current = rescue_hash_gpu(arr)
+                combined = (left.astype(cp.uint64) << 32) ^ right.astype(cp.uint64)
+                current = rescue_hash_gpu(combined)
             elif self.hash_func == "SHA3":
+                combined = (left.astype(np.uint64) << 32) ^ right.astype(np.uint64)
                 current = sha3_keccak_gpu(combined)
-            print("Current level ", current)
+        self.tree.append(current)
         return current[0]
 
     def get_root_value(self):
         if self.hash_func == "Rescue":
-            print(self.root, "Root value in GPU Merkle Tree")
-            return hex(int(self.root.get()))[2:]
+            return self.root.get()
         elif self.hash_func == "SHA3":
-            # Convert the GPU array to a CPU array and then to hex
-            return hex(int(self.root))[2:]
+            return self.root
+
+    def proof_of_inclusion(self, index):
+        proof = []
+        current_level = self.tree[0]
+        # Sibling index calculation
+        i = 0
+        sibling_index = index
+
+        while current_level.shape[0] > 1:
+            sibling_index = index ^ 1 # Get the sibling index
+            proof.append((self.tree[i][sibling_index], sibling_index % 2))
+            index //= 2
+            i += 1
+            current_level = self.tree[i]
+
+        return proof
+
+    def verify_proof(self, leaf, proof):
+        current = leaf
+
+        for sibling in proof:
+            sibling_val = sibling[0]
+            
+            if sibling[1] == 1:  # Left sibling
+                current = (current.astype(np.uint64) << 32) ^ sibling_val.astype(np.uint64)
+            else:
+                current = (sibling_val.astype(np.uint64) << 32) ^ current.astype(np.uint64)
+
+            if self.hash_func == "Rescue":
+                current = rescue_hash_gpu(cp.array([current]))[0]
+            elif self.hash_func == "SHA3":
+                current = sha3_keccak_gpu(np.array([current]))[0]
+        return current == self.root
 
 if __name__ == "__main__":
     # Example usage of the MerkleTree class
-    data = ["a", "b", "c", "de", "f"]
+    data = np.random.randint(0, 100, size=10000, dtype=np.int64)
 
     merkle_tree = MerkleTree(data)
     print("Merkle Root:", merkle_tree.root.value)
