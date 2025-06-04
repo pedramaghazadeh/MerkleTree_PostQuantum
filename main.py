@@ -39,17 +39,23 @@ if __name__ == "__main__":
     print(f"Merkle Proof validity (GPU) for index {index}: {valid}")
     print("=" * 50, "\n")
 
-    
-
     st = time.time()
     print("Using CPU for Merkle Tree construction.")
-    merkle_tree = MerkleTree(data=test_input, hash_function=args.hash_function)
+    merkle_tree = MerkleTree(data=test_input, hash_func=args.hash_function)
+
     en = time.time()
     time_cpu = en - st
     print(f"Time taken (CPU): {en - st}s")
     print("Merkle Root:", merkle_tree.get_root_value())
 
+    leaf = merkle_tree.leaf_hashes[index]
+    proof = merkle_tree.proof_of_inclusion(index)
+    valid = merkle_tree.verify_proof(leaf, proof)
+    print(f"Merkle Proof validity (CPU) for index {index}: {valid}")
+    print("=" * 50, "\n")
+
     print("\n\nExecution Time Comparison")
     print(f"CPU Time: {time_cpu:.4f} seconds")
     print(f"GPU Time: {time_gpu:.4f} seconds")
+    
     print(f"Speedup of GPU over CPU: {time_cpu / time_gpu}x")
