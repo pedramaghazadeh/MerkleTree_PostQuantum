@@ -26,11 +26,11 @@ mds_matrix = cp.array([
     [2, 3, 1],
     [1, 1, 4],
     [3, 5, 6]
-], dtype=cp.int64)
+], dtype=cp.uint64)
 
 # Round constants (convert from CPU to GPU version)
 round_constants = [np.array([(i * j + 1) % p for j in range(state_size)], dtype=object) for i in range(2 * num_rounds)]
-round_constants = [cp.array(rc, dtype=cp.int64) for rc in round_constants]
+round_constants = [cp.array(rc, dtype=cp.uint64) for rc in round_constants]
 
 ##### GPU Functions #####
 # S-Box function
@@ -48,46 +48,57 @@ def mds_multiply(state):
     return cp.mod(cp.dot(mds_matrix, state), p)
 
 # Rescue hash function (single input)
-def rescue_hash(inputs):
+def rescue_hash_gpu(inputs):
+    inputs = inputs.get()
+    # print(inputs)
     if not isinstance(inputs, list):
-        inputs = [inputs]  # ensure inputs is a list
+        inputs = list(inputs) # ensure inputs is a list
+    
     # pad inputs -> add single 1, then 0s
     padded = inputs + [1] + [0] * (state_size - len(inputs) - 1)
     # update state
-    state = cp.array(padded, dtype=cp.int64)
+    state = cp.array(padded, dtype=cp.uint64)
 
     # apply functions through rounds
     for i in range(num_rounds):
         # s-box layer
         state_np = cp.asnumpy(state)
-        state = cp.array([sbox(curr_state) for curr_state in state_np], dtype=cp.int64)
+        state = cp.array([sbox(curr_state) for curr_state in state_np], dtype=cp.uint64)
         # MDS matrix multiplication #1
         state = mds_multiply(state)
         # add round constant #1
         state = cp.mod(state + round_constants[2 * i], p)
         # inverse S-box layer
         state_np = cp.asnumpy(state)
-        state = cp.array([inv_s_box(curr_state) for curr_state in state_np], dtype=cp.int64)
+        state = cp.array([inv_s_box(curr_state) for curr_state in state_np], dtype=cp.uint64)
         # MDS matrix multiplication #2
         state = mds_multiply(state)
         # add round constant #2
         state = cp.mod(state + round_constants[2 * i + 1], p)
     # return first rate elements of final state as Python list
-    return cp.asnumpy(state[:rate]).tolist()
+    return cp.array(state[:rate], dtype=cp.uint64)
 
 # Batch hash function for multiple inputs (comparing execution time)
     # parallel processing to take advantage of CUDA GPU
-def batch_rescue_hash(input_list):
+def batch_rescue_hash_gpu(input_list):
+    # print("Input list", input_list)
+    # print("Batch input list:", input_list.shape)
+
+    input_list = input_list.get()
+    # print("Input list shape:", input_list.shape)
+    if len(input_list.shape) == 1:
+        input_list = np.reshape(input_list, (-1, 1)).tolist()  # ensure input_list is 2D
+    # print("Reshaped batch input list:", input_list.shape)
     # convert inputs to CuPy array with padding
     padded = np.array([inputs + [1] + [0] * (state_size - len(inputs) - 1) for inputs in input_list])
-    states = cp.array(padded, dtype=cp.int64)  # (batch_size, state_size)
+    states = cp.array(padded, dtype=cp.uint64)  # (batch_size, state_size)
 
     # apply functions through rounds
     for i in range(num_rounds):
         # s-box layer
         states_np = cp.asnumpy(states)
         states_np = np.array([[sbox(curr_state) for curr_state in state] for state in states_np])
-        states = cp.array(states_np, dtype=cp.int64)
+        states = cp.array(states_np, dtype=cp.uint64)
         # MDS matrix multiplication #1
         states = cp.mod(cp.dot(mds_matrix, states.T).T, p)  # Adjusted for batched operation
         # add round constant #1
@@ -95,13 +106,13 @@ def batch_rescue_hash(input_list):
         # inverse S-box layer
         states_np = cp.asnumpy(states)   # CPU to GPU conversion
         states_np = np.array([[inv_s_box(curr_state) for curr_state in state] for state in states_np])
-        states = cp.array(states_np, dtype=cp.int64)
+        states = cp.array(states_np, dtype=cp.uint64)
         # MDS matrix multiplication #2
         states = cp.mod(cp.dot(mds_matrix, states.T).T, p)
         # add round constant #2
         states = cp.mod(states + round_constants[2 * i + 1], p)
     # return first rate elements of final states
-    return cp.asnumpy(states[:, :rate]).tolist()
+    return cp.array(states[:, :rate], dtype=cp.uint64)  # (batch_size, rate)
 
 # Test cases
 if __name__ == "__main__":
@@ -112,7 +123,7 @@ if __name__ == "__main__":
     
     # empty input
     start_time = time.perf_counter()
-    empty_test = rescue_hash([])
+    empty_test = rescue_hash_gpu([])
     end_time = time.perf_counter()
     empty_time_ms = (end_time - start_time) * 1000
     print("GPU rescue hash of []:", empty_test)
@@ -120,7 +131,7 @@ if __name__ == "__main__":
     
     # non-empty input #1
     start_time = time.perf_counter()
-    non_empty_test_1 = rescue_hash([16, 234])
+    non_empty_test_1 = rescue_hash_gpu([16, 234])
     end_time = time.perf_counter()
     non_empty_1_time_ms = (end_time - start_time) * 1000
     print("GPU rescue hash of [16, 234]:", non_empty_test_1)
@@ -128,7 +139,7 @@ if __name__ == "__main__":
     
     # non-empty input #2
     start_time = time.perf_counter()
-    non_empty_test_2 = rescue_hash([100, 200])
+    non_empty_test_2 = rescue_hash_gpu([100, 200])
     end_time = time.perf_counter()
     non_empty_2_time_ms = (end_time - start_time) * 1000
     print("GPU rescue hash of [100, 200]:", non_empty_test_2)
@@ -136,16 +147,17 @@ if __name__ == "__main__":
     
     # batch of 10000 random inputs
     np.random.seed(10)  # for reproducibility
-    batch_inputs = np.random.randint(0, p, size=(10000, 2)).tolist() # randomize
+    batch_inputs = np.random.randint(0, p, size=(10000, 1)).tolist() # randomize
+    print(batch_inputs[:3])
     start_time = time.perf_counter()
-    batch_results = batch_rescue_hash(batch_inputs)
+    batch_results = batch_rescue_hash_gpu(batch_inputs)
     end_time = time.perf_counter()
     batch_time_ms = (end_time - start_time) * 1000
     print("GPU batch hash (10000 random inputs):", batch_results[:3]) # display first 3 only
     print(f"Time: {batch_time_ms:.3f} ms")
     
     # deterministic sanity check
-    is_deterministic = rescue_hash([45, 125]) == rescue_hash([45, 125])
+    is_deterministic = rescue_hash_gpu([45, 125]) == rescue_hash_gpu([45, 125])
     if is_deterministic:
         print("GPU hash is deterministic")
     else:

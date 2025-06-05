@@ -3,7 +3,8 @@ import hashlib
 import numpy as np
 import cupy as cp
 
-from rescue_compare import *
+from rescue_cpu import *
+from rescue_gpu import *
 from sha3 import *
 
 class MerkleTree:
@@ -14,7 +15,6 @@ class MerkleTree:
 
         self.leaf_hashes = self._hash_leaves(data)
         self.root = self._build_tree(self.leaf_hashes)
-        
 
     def _hash_leaves(self, data):
         # GPU batch hash
@@ -91,13 +91,14 @@ class GPUMerkleTree:
         self.tree = []
 
         self.leaf_hashes = self._hash_leaves(data)
+        print("Leaf hashes:", self.leaf_hashes.shape)
         self.root = self._build_tree_gpu(self.leaf_hashes)
         
 
     def _hash_leaves(self, data):
         # GPU batch hash
         if self.hash_func == "Rescue":
-            return rescue_hash_gpu(self.data)
+            return batch_rescue_hash_gpu(self.data)[:, 0]
         elif self.hash_func == "SHA3":
             return sha3_keccak_gpu(np.array(self.data))
         else:
@@ -117,7 +118,7 @@ class GPUMerkleTree:
 
             if self.hash_func == "Rescue":
                 combined = (left.astype(cp.uint64) << 32) ^ right.astype(cp.uint64)
-                current = rescue_hash_gpu(combined)
+                current = batch_rescue_hash_gpu(cp.array(combined))[:, 0]
             elif self.hash_func == "SHA3":
                 combined = (left.astype(np.uint64) << 32) ^ right.astype(np.uint64)
                 current = sha3_keccak_gpu(combined)
@@ -148,6 +149,8 @@ class GPUMerkleTree:
 
     def verify_proof(self, leaf, proof):
         current = leaf
+        if self.hash_func == "Rescue":
+            current = cp.array([current], dtype=cp.uint64)
 
         for sibling in proof:
             sibling_val = sibling[0]
@@ -158,9 +161,11 @@ class GPUMerkleTree:
                 current = (sibling_val.astype(np.uint64) << 32) ^ current.astype(np.uint64)
 
             if self.hash_func == "Rescue":
-                current = rescue_hash_gpu(cp.array([current]))[0]
+                current = batch_rescue_hash_gpu(cp.array(current, dtype=cp.uint64))[:, 0]
             elif self.hash_func == "SHA3":
                 current = sha3_keccak_gpu(np.array([current]))[0]
+        if self.hash_func == "Rescue":
+            current = current[0]
         return current == self.root
 
 if __name__ == "__main__":

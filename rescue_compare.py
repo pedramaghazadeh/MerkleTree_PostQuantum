@@ -127,7 +127,7 @@ def rescue_hash_gpu(input_array: cp.ndarray) -> cp.ndarray:
         # Add round constant #2
         rc2 = round_constants_gpu[2 * i + 1][None, :]
         state = cp.mod(state + rc2, p)
-    print(state)
+    # print(state)
     # Return first `rate` values of each state
     return state[:, :1].reshape(-1)
 

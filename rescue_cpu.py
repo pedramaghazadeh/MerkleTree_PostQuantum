@@ -33,23 +33,23 @@ round_constants = [np.array([(i * j + 1) % p for j in range(state_size)], dtype=
 
 ##### CPU Functions #####
 ### S-Box Function
-def sbox(curr_state):
+def sbox_cpu(curr_state):
     # curr_state^alpha mod p
-    return pow(curr_state, alpha, p)
+    return pow(int(curr_state), alpha, p)
 # Inverse S-Box function
-def inv_s_box(curr_state):
+def inv_s_box_cpu(curr_state):
     # curr_state^alpha_inv mod p
-    return pow(curr_state, inv_alpha, p)
+    return pow(int(curr_state), inv_alpha, p)
 
 # MDS matrix multiplication
-def mds_multiply(state):
+def mds_multiply_cpu(state):
     # multiply state by MDS matricurr_state
     return np.mod(mds_matrix @ state, p)
 
 # Rescue hash function
-def rescue_hash(inputs):
-    if type(inputs) is not list:
-        inputs = [inputs]   # ensure inputs is a list
+def rescue_hash_cpu(inputs):
+    # if type(inputs) is not list:
+    #     inputs = [inputs]   # ensure inputs is a list
     # pad inputs -> add single 1, then 0s
     padded = inputs + [1] + [0] * (state_size - len(inputs) - 1)
     # update state
@@ -58,24 +58,24 @@ def rescue_hash(inputs):
     # apply functions through rounds
     for i in range(num_rounds):
         # s-box layer
-        state = np.array([sbox(curr_state) for curr_state in state], dtype=object)
+        state = np.array([sbox_cpu(curr_state) for curr_state in state], dtype=object)
         # MDS matrix multiplication #1
-        state = mds_multiply(state)
+        state = mds_multiply_cpu(state)
         # add round constant #1
         state = np.mod(state + round_constants[2 * i], p)
         # inverse S-box layer
-        state = np.array([inv_s_box(curr_state) for curr_state in state], dtype=object)
+        state = np.array([inv_s_box_cpu(curr_state) for curr_state in state], dtype=object)
         # MDS matrix multiplication #2
-        state = mds_multiply(state)
+        state = mds_multiply_cpu(state)
         # add round constant #2
         state = np.mod(state + round_constants[2 * i + 1], p)
     # return first rate elements of final state
     return list(state[:rate])
 
 # Batch hash function for multiple inputs (comparing execution time)
-def batch_rescue_hash(input_list):
+def batch_rescue_hash_cpu(input_list):
     # perform hash function on each input
-    return [rescue_hash(inputs) for inputs in input_list]
+    return [rescue_hash_cpu(inputs) for inputs in input_list]
 
 # Test cases
 if __name__ == "__main__":
@@ -86,7 +86,7 @@ if __name__ == "__main__":
     
     # empty input
     start_time = time.perf_counter()
-    empty_test = rescue_hash([])
+    empty_test = rescue_hash_cpu([])
     end_time = time.perf_counter()
     empty_time_ms = (end_time - start_time) * 1000
     print("CPU rescue hash of []:", empty_test)
@@ -94,7 +94,7 @@ if __name__ == "__main__":
     
     # non-empty input #1
     start_time = time.perf_counter()
-    non_empty_test_1 = rescue_hash([16, 234])
+    non_empty_test_1 = rescue_hash_cpu([16, 234])
     end_time = time.perf_counter()
     non_empty_1_time_ms = (end_time - start_time) * 1000
     print("CPU rescue hash of [16, 234]:", non_empty_test_1)
@@ -102,7 +102,7 @@ if __name__ == "__main__":
     
     # non-empty input #2
     start_time = time.perf_counter()
-    non_empty_test_2 = rescue_hash([100, 200])
+    non_empty_test_2 = rescue_hash_cpu([100, 200])
     end_time = time.perf_counter()
     non_empty_2_time_ms = (end_time - start_time) * 1000
     print("CPU rescue hash of [100, 200]:", non_empty_test_2)
@@ -112,14 +112,14 @@ if __name__ == "__main__":
     np.random.seed(10)  # for reproducibility
     batch_inputs = np.random.randint(0, p, size=(10000, 2)).tolist() # randomize
     start_time = time.perf_counter()
-    batch_test = batch_rescue_hash(batch_inputs)
+    batch_test = batch_rescue_hash_cpu(batch_inputs)
     end_time = time.perf_counter()
     batch_time_ms = (end_time - start_time) * 1000
     print("CPU batch hash (10000 random inputs):", batch_test[:3])  # display first 3 only
     print(f"Time: {batch_time_ms:.3f} ms")
     
     # deterministic sanity check
-    is_deterministic = rescue_hash([45, 125]) == rescue_hash([45, 125])
+    is_deterministic = rescue_hash_cpu([45, 125]) == rescue_hash_cpu([45, 125])
     if is_deterministic:
         print("CPU hash is deterministic")
     else:
