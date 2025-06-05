@@ -4,7 +4,7 @@ import cupy as cp
 import time
 
 # Prime for finite field (ideally larger, but limited by CuPy)
-p = 2**255 - 19
+p = 2**31 - 1
 
 # S-box exponent
 alpha = 5
@@ -107,6 +107,16 @@ if __name__ == "__main__":
     non_empty_2_time_ms = (end_time - start_time) * 1000
     print("CPU rescue hash of [100, 200]:", non_empty_test_2)
     print(f"Time: {non_empty_2_time_ms:.3f} ms")
+    
+    # batch of 10000 random inputs
+    np.random.seed(10)  # for reproducibility
+    batch_inputs = np.random.randint(0, p, size=(10000, 2)).tolist() # randomize
+    start_time = time.perf_counter()
+    batch_test = batch_rescue_hash(batch_inputs)
+    end_time = time.perf_counter()
+    batch_time_ms = (end_time - start_time) * 1000
+    print("CPU batch hash (10000 random inputs):", batch_test[:3])  # display first 3 only
+    print(f"Time: {batch_time_ms:.3f} ms")
     
     # deterministic sanity check
     is_deterministic = rescue_hash([45, 125]) == rescue_hash([45, 125])
