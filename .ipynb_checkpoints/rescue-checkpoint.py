@@ -1,0 +1,116 @@
+# Imports
+import numpy as np
+import cupy as cp
+import time
+
+# Prime for finite field (ideally larger, but limited by CuPy)
+p = 2**255 - 19
+
+# S-box exponent
+alpha = 5
+
+# Inverse S-box exponent (mod p - 1)
+inv_alpha = pow(alpha, -1, p - 1)
+
+# Number of rescue rounds
+num_rounds = 10
+
+# State size = input length + capacity
+state_size = 3
+
+# Number of elements in output
+rate = 2
+
+# MDS matrix curr_state -> micurr_state state variables between rounds, introduces diffusion
+mds_matrix = np.array([
+    [2, 3, 1],
+    [1, 1, 4],
+    [3, 5, 6]
+], dtype=object)
+
+# Round constants
+round_constants = [np.array([(i * j + 1) % p for j in range(state_size)], dtype=object) for i in range(2 * num_rounds)]
+
+##### CPU Functions #####
+### S-Box Function
+def sbox(curr_state):
+    # curr_state^alpha mod p
+    return pow(curr_state, alpha, p)
+# Inverse S-Box function
+def inv_s_box(curr_state):
+    # curr_state^alpha_inv mod p
+    return pow(curr_state, inv_alpha, p)
+
+# MDS matrix multiplication
+def mds_multiply(state):
+    # multiply state by MDS matricurr_state
+    return np.mod(mds_matrix @ state, p)
+
+# Rescue hash function
+def rescue_hash(inputs):
+    if type(inputs) is not list:
+        inputs = [inputs]   # ensure inputs is a list
+    # pad inputs -> add single 1, then 0s
+    padded = inputs + [1] + [0] * (state_size - len(inputs) - 1)
+    # update state
+    state = np.array(padded, dtype=object)
+
+    # apply functions through rounds
+    for i in range(num_rounds):
+        # s-box layer
+        state = np.array([sbox(curr_state) for curr_state in state], dtype=object)
+        # MDS matrix multiplication #1
+        state = mds_multiply(state)
+        # add round constant #1
+        state = np.mod(state + round_constants[2 * i], p)
+        # inverse S-box layer
+        state = np.array([inv_s_box(curr_state) for curr_state in state], dtype=object)
+        # MDS matrix multiplication #2
+        state = mds_multiply(state)
+        # add round constant #2
+        state = np.mod(state + round_constants[2 * i + 1], p)
+    # return first rate elements of final state
+    return list(state[:rate])
+
+# Batch hash function for multiple inputs (comparing execution time)
+def batch_rescue_hash(input_list):
+    # perform hash function on each input
+    return [rescue_hash(inputs) for inputs in input_list]
+
+# Test cases
+if __name__ == "__main__":
+
+    # imports sanity check
+    print(cp.__version__)
+    print(cp.cuda.runtime.getDeviceCount())
+    
+    # empty input
+    start_time = time.perf_counter()
+    empty_test = rescue_hash([])
+    end_time = time.perf_counter()
+    empty_time_ms = (end_time - start_time) * 1000
+    print("CPU rescue hash of []:", empty_test)
+    print(f"Time: {empty_time_ms:.3f} ms")
+    
+    # non-empty input #1
+    start_time = time.perf_counter()
+    non_empty_test_1 = rescue_hash([16, 234])
+    end_time = time.perf_counter()
+    non_empty_1_time_ms = (end_time - start_time) * 1000
+    print("CPU rescue hash of [16, 234]:", non_empty_test_1)
+    print(f"Time: {non_empty_1_time_ms:.3f} ms")
+    
+    # non-empty input #2
+    start_time = time.perf_counter()
+    non_empty_test_2 = rescue_hash([100, 200])
+    end_time = time.perf_counter()
+    non_empty_2_time_ms = (end_time - start_time) * 1000
+    print("CPU rescue hash of [100, 200]:", non_empty_test_2)
+    print(f"Time: {non_empty_2_time_ms:.3f} ms")
+    
+    # deterministic sanity check
+    is_deterministic = rescue_hash([45, 125]) == rescue_hash([45, 125])
+    if is_deterministic:
+        print("CPU hash is deterministic")
+    else:
+        print("CPU hash is NOT deterministic")
