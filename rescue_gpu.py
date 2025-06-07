@@ -11,7 +11,6 @@ alpha = 5
 
 # Inverse S-box exponent (mod p - 1)
 inv_alpha = pow(alpha, -1, p - 1)
-
 # Number of rescue rounds
 num_rounds = 10
 
@@ -41,6 +40,10 @@ def sbox(curr_state):
 def inv_s_box(curr_state):
     # curr_state^alpha_inv mod p
     return pow(int(curr_state), inv_alpha, p)
+
+# Vectorize the s-box and inverse s-box functions for batch processing with np
+sbox_vectorized = np.vectorize(sbox)
+inv_s_box_vectorized = np.vectorize(inv_s_box)
 
 # MDS matrix multiplication
 def mds_multiply(state):
@@ -97,7 +100,7 @@ def batch_rescue_hash_gpu(input_list):
     for i in range(num_rounds):
         # s-box layer
         states_np = cp.asnumpy(states)
-        states_np = np.array([[sbox(curr_state) for curr_state in state] for state in states_np])
+        states_np = sbox_vectorized(states_np)  # Apply s-box to each element
         states = cp.array(states_np, dtype=cp.uint64)
         # MDS matrix multiplication #1
         states = cp.mod(cp.dot(mds_matrix, states.T).T, p)  # Adjusted for batched operation
@@ -105,7 +108,7 @@ def batch_rescue_hash_gpu(input_list):
         states = cp.mod(states + round_constants[2 * i], p)
         # inverse S-box layer
         states_np = cp.asnumpy(states)   # CPU to GPU conversion
-        states_np = np.array([[inv_s_box(curr_state) for curr_state in state] for state in states_np])
+        states_np = inv_s_box_vectorized(states_np)  # Apply inverse s-box to each element
         states = cp.array(states_np, dtype=cp.uint64)
         # MDS matrix multiplication #2
         states = cp.mod(cp.dot(mds_matrix, states.T).T, p)

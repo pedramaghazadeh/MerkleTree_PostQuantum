@@ -1,13 +1,7 @@
-# Install PyCUDA
-#install pycuda if you do not have it already
-#!pip install pycuda
 import pycuda.driver as cuda
 import pycuda.autoinit
 from pycuda.compiler import SourceModule
-
 import numpy as np
-import cupy as cp
-
 import time
 
 # --- CUDA Kernel for Keccak-f[1600] ---
@@ -114,23 +108,75 @@ def sha3_keccak_gpu(inputs):
     cuda.memcpy_dtoh(output, output_gpu)
     return output
 
-# --- CPU Hasher ---
-def sha3_keccak_cpu(x: int) -> int:
-    # Force to 64-bit unsigned integer
-    # print(type(x))
-    x &= 0xFFFFFFFFFFFFFFFF
-    # Step 1: XOR with constant
-    x ^= 0xA3A3A3A3A3A3A3A3
-    # Step 2: Left rotate by 1
-    x = ((x << 1) | (x >> 63)) & 0xFFFFFFFFFFFFFFFF
-    # Step 3: XOR with x shifted left by 13
-    x ^= (x << 13) & 0xFFFFFFFFFFFFFFFF
-    # Step 4: XOR with x shifted right by 7 (unsigned)
-    x ^= (x >> 7)
-    # Step 5: XOR with x shifted left by 17
-    x ^= (x << 17) & 0xFFFFFFFFFFFFFFFF
-    # Return final 64-bit value
-    return x & 0xFFFFFFFFFFFFFFFF
+# --- CPU Keccak-f[1600] (GPU-aligned) ---
+KECCAKF_ROTC = np.array([
+    0,  1, 62, 28, 27,
+   36, 44,  6, 55, 20,
+    3, 10, 43, 25, 39,
+   41, 45, 15, 21,  8,
+   18,  2, 61, 56, 14
+], dtype=np.int32)
+
+KECCAKF_PILN = np.array([
+     0,  6, 12, 18, 24,
+     3,  9, 10, 16, 22,
+     1,  7, 13, 19, 20,
+     4,  5, 11, 17, 23,
+     2,  8, 14, 15, 21
+], dtype=np.int32)
+
+KECCAKF_RNDC = np.array([
+  0x0000000000000001, 0x0000000000008082,
+  0x800000000000808a, 0x8000000080008000,
+  0x000000000000808b, 0x0000000080000001,
+  0x8000000080008081, 0x8000000000008009,
+  0x000000000000008a, 0x0000000000000088,
+  0x0000000080008009, 0x000000008000000a,
+  0x000000008000808b, 0x800000000000008b,
+  0x8000000000008089, 0x8000000000008003,
+  0x8000000000008002, 0x8000000000000080,
+  0x000000000000800a, 0x800000008000000a,
+  0x8000000080008081, 0x8000000000008080,
+  0x0000000080000001, 0x8000000080008008
+], dtype=np.uint64)
+
+def rol64(x, n):
+    x = np.uint64(x)
+    n = int(n)
+    return np.uint64(((x << n) | (x >> (64 - n))) & 0xFFFFFFFFFFFFFFFF)
+
+
+def keccakf_cpu(state):
+    for round in range(24):
+        bc = np.zeros(5, dtype=np.uint64)
+        for i in range(5):
+            bc[i] = state[i] ^ state[i + 5] ^ state[i + 10] ^ state[i + 15] ^ state[i + 20]
+        for i in range(5):
+            t = bc[(i + 4) % 5] ^ rol64(bc[(i + 1) % 5], 1)
+            for j in range(0, 25, 5):
+                state[j + i] ^= t
+
+        t = state[1]
+        for i in range(24):
+            j = KECCAKF_PILN[i]
+            bc[0] = state[j]
+            state[j] = rol64(t, KECCAKF_ROTC[i])
+            t = bc[0]
+
+        for j in range(0, 25, 5):
+            for i in range(5):
+                bc[i] = state[j + i]
+            for i in range(5):
+                state[j + i] ^= (~bc[(i + 1) % 5]) & bc[(i + 2) % 5]
+
+        state[0] ^= KECCAKF_RNDC[round]
+    return state
+
+def sha3_keccak_cpu(x):
+    state = np.zeros(25, dtype=np.uint64)
+    state[0] = x
+    state = keccakf_cpu(state)
+    return state[0]
 
 # --- Merkle Tree Construction ---
 def build_merkle_tree(hashed_leaves, hash_func):
@@ -170,9 +216,9 @@ def verify_proof(leaf, proof, root, index, hash_func):
 
 # --- Benchmarking ---
 if __name__ == "__main__":
-    leaves = np.arange(10, dtype=np.uint64)
+    leaves = np.arange(1000, dtype=np.uint64)
 
-    # CPU Benchmark
+    # CPU Benchmark (GPU-aligned version)
     start = time.time()
     cpu_hashes = np.array([sha3_keccak_cpu(x) for x in leaves], dtype=np.uint64)
     cpu_time = time.time() - start
@@ -183,6 +229,11 @@ if __name__ == "__main__":
     gpu_hashes = sha3_keccak_gpu(leaves)
     gpu_time = time.time() - start
     print("GPU Time:", gpu_time)
+
+    # --- Compare CPU and GPU Hash Outputs ---
+    print("\nComparing CPU and GPU Hashes (first 10 entries):")
+    for i in range(10):
+        print(f"Index {i}: CPU = {hex(cpu_hashes[i])}, GPU = {hex(gpu_hashes[i])}, Match = {cpu_hashes[i] == gpu_hashes[i]}")
 
     # Small Merkle Tree Example
     test_leaves = np.array([i + 1000 for i in range(8)], dtype=np.uint64)
@@ -197,6 +248,3 @@ if __name__ == "__main__":
     proof = generate_proof(index, tree)
     valid = verify_proof(leaf, proof, root, index, sha3_keccak_gpu)
     print(f"Merkle Proof valid (GPU): {valid}")
-
-    print(cpu_hashes)
-    print(gpu_hashes)

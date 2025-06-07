@@ -91,7 +91,6 @@ class GPUMerkleTree:
         self.tree = []
 
         self.leaf_hashes = self._hash_leaves(data)
-        print("Leaf hashes:", self.leaf_hashes.shape)
         self.root = self._build_tree_gpu(self.leaf_hashes)
         
 
