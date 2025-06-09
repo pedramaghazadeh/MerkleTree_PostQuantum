@@ -37,14 +37,35 @@ round_constants = [cp.array(rc, dtype=cp.int64) for rc in round_constants]
 def sbox(curr_state):
     # curr_state^alpha mod p
     return pow(int(curr_state), alpha, p)
+
 # Inverse S-Box function
 def inv_s_box(curr_state):
     # curr_state^alpha_inv mod p
     return pow(int(curr_state), inv_alpha, p)
 
+# Vectorized Modular Exponentiation (workaround for data transfer overhead)
+def vectorized_mod_pow(base_array, exponent, modulus):
+    # check if CuPy array
+    if isinstance(base_array, np.ndarray):
+        base_array = cp.array(base_array)
+    
+    # use CuPy power function with modular arithmetic
+        # avoid overflow for large values
+    result = cp.ones_like(base_array, dtype=cp.int64)
+    base = base_array % modulus
+    exp = exponent
+    while exp > 0:
+        if exp % 2 == 1:
+            result = (result * base) % modulus
+        base = (base * base) % modulus
+        exp //= 2
+
+    # return
+    return result
+
 # MDS matrix multiplication
 def mds_multiply(state):
-    # multiply state by MDS matricurr_state
+    # multiply state by MDS matrix
     return cp.mod(cp.dot(mds_matrix, state), p)
 
 # Rescue hash function (single input)
@@ -76,7 +97,6 @@ def rescue_hash(inputs):
     return cp.asnumpy(state[:rate]).tolist()
 
 # Batch hash function for multiple inputs (comparing execution time)
-    # parallel processing to take advantage of CUDA GPU
 def batch_rescue_hash(input_list):
     # convert inputs to CuPy array with padding
     padded = np.array([inputs + [1] + [0] * (state_size - len(inputs) - 1) for inputs in input_list])
@@ -85,35 +105,23 @@ def batch_rescue_hash(input_list):
     # apply functions through rounds
     for i in range(num_rounds):
         # s-box layer
-        states_np = cp.asnumpy(states)
-        ##### OLD ELEMENT-WISE LOOP
-        #states_np = np.array([[sbox(x) for x in row] for row in states_np])
-        ##### NEW VECTORIZED PROCESSING
-        states_np **= alpha
-        states_np %= p
-        states = cp.array(states_np, dtype=cp.int64)
+        states = vectorized_mod_pow(states, alpha, p)
         # MDS matrix multiplication #1
-        states = cp.mod(cp.dot(mds_matrix, states.T).T, p)  # Adjusted for batched operation
+        states = cp.mod(cp.dot(mds_matrix, states.T).T, p)
         # add round constant #1
         states = cp.mod(states + round_constants[2 * i], p)
         # inverse S-box layer
-        states_np = cp.asnumpy(states)   # CPU to GPU conversion
-        ##### OLD ELEMENT-WISE LOOP
-        #states_np = np.array([[sbox(x) for x in row] for row in states_np])
-        ##### NEW VECTORIZED PROCESSING
-        states_np **= inv_alpha
-        states_np %= p
-        states = cp.array(states_np, dtype=cp.int64)
+        states = vectorized_mod_pow(states, inv_alpha, p)
         # MDS matrix multiplication #2
         states = cp.mod(cp.dot(mds_matrix, states.T).T, p)
         # add round constant #2
         states = cp.mod(states + round_constants[2 * i + 1], p)
+    
     # return first rate elements of final states
     return cp.asnumpy(states[:, :rate]).tolist()
 
 # Test cases
 if __name__ == "__main__":
-
     # imports sanity check
     print(cp.__version__)
     print(cp.cuda.runtime.getDeviceCount())
@@ -144,12 +152,12 @@ if __name__ == "__main__":
     
     # batch of 10000 random inputs
     np.random.seed(10)  # for reproducibility
-    batch_inputs = np.random.randint(0, p, size=(10000, 2)).tolist() # randomize
+    batch_inputs = np.random.randint(0, p, size=(10000, 2)).tolist()
     start_time = time.perf_counter()
     batch_results = batch_rescue_hash(batch_inputs)
     end_time = time.perf_counter()
     batch_time_ms = (end_time - start_time) * 1000
-    print("GPU batch hash (10000 random inputs):", batch_results[:3]) # display first 3 only
+    print("GPU batch hash (10000 random inputs):", batch_results[:3])
     print(f"Time: {batch_time_ms:.3f} ms")
     
     # deterministic sanity check

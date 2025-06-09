@@ -41,6 +41,25 @@ def inv_s_box(curr_state):
     # curr_state^alpha_inv mod p
     return pow(int(curr_state), inv_alpha, p)
 
+# Vectorized Modular Exponentiation
+def vectorized_mod_pow_gpu(base_array, exponent, modulus):
+    # check if using CuPy arrays
+    if isinstance(base_array, np.ndarray):
+        base_array = cp.array(base_array, dtype=cp.uint64)
+
+    # perform modular exponentiation
+    result = cp.ones_like(base_array, dtype=cp.uint64)
+    base = base_array % modulus
+    exp = exponent
+    while exp > 0:
+        if exp % 2 == 1:
+            result = (result * base) % modulus
+        base = (base * base) % modulus
+        exp //= 2
+
+    # return
+    return result
+
 # Vectorize the s-box and inverse s-box functions for batch processing with np
 sbox_vectorized = np.vectorize(sbox)
 inv_s_box_vectorized = np.vectorize(inv_s_box)
@@ -99,17 +118,23 @@ def batch_rescue_hash_gpu(input_list):
     # apply functions through rounds
     for i in range(num_rounds):
         # s-box layer
-        states_np = cp.asnumpy(states)
-        states_np = sbox_vectorized(states_np)  # Apply s-box to each element
-        states = cp.array(states_np, dtype=cp.uint64)
+        ### old version
+        #states_np = cp.asnumpy(states)
+        #states_np = sbox_vectorized(states_np)  # Apply s-box to each element
+        #states = cp.array(states_np, dtype=cp.uint64)
+        ### NEW VECTORIZED MODULAR EXPONENTIATION
+        states = vectorized_mod_pow_gpu(states, alpha, p)
         # MDS matrix multiplication #1
         states = cp.mod(cp.dot(mds_matrix, states.T).T, p)  # Adjusted for batched operation
         # add round constant #1
         states = cp.mod(states + round_constants[2 * i], p)
         # inverse S-box layer
-        states_np = cp.asnumpy(states)   # CPU to GPU conversion
-        states_np = inv_s_box_vectorized(states_np)  # Apply inverse s-box to each element
-        states = cp.array(states_np, dtype=cp.uint64)
+        ### old version
+        #states_np = cp.asnumpy(states)   # CPU to GPU conversion
+        #states_np = inv_s_box_vectorized(states_np)  # Apply inverse s-box to each element
+        #states = cp.array(states_np, dtype=cp.uint64)
+        ### NEW VECTORIZED MODULAR EXPONENTIATION
+        states = vectorized_mod_pow_gpu(states, inv_alpha, p)
         # MDS matrix multiplication #2
         states = cp.mod(cp.dot(mds_matrix, states.T).T, p)
         # add round constant #2
